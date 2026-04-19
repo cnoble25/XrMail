@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -15,6 +17,14 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+
+        val localProps = rootProject.file("local.properties")
+        val geminiKey = if (localProps.exists()) {
+            val props = Properties()
+            localProps.inputStream().use { props.load(it) }
+            props.getProperty("GEMINI_API_KEY", "")
+        } else ""
+        buildConfigField("String", "GEMINI_API_KEY", "\"$geminiKey\"")
     }
 
     buildTypes {
@@ -38,6 +48,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

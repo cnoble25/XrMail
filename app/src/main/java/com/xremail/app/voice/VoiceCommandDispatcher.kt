@@ -3,7 +3,9 @@ package com.xremail.app.voice
 import android.util.Log
 import com.xremail.app.data.Email
 import com.xremail.app.data.EmailCategory
+import com.xremail.app.util.XrLog
 import com.xremail.app.viewmodel.EmailViewModel
+import com.xremail.app.viewmodel.InteractionTier
 
 /**
  * Executes [EmailCommandTool.Command]s produced by [GeminiLiveManager].
@@ -20,6 +22,19 @@ class VoiceCommandDispatcher(
 
     fun dispatch(command: EmailCommandTool.Command) {
         Log.i(TAG, "dispatch: $command")
+        try {
+            dispatchInner(command)
+        } catch (t: Throwable) {
+            // Never let a bad command handler take down the voice pipeline —
+            // a thrown exception here would propagate up through the commands
+            // SharedFlow collector in MainActivity and kill the session.
+            Log.e(TAG, "dispatch failed for $command", t)
+            tts.speak("Something went wrong.")
+            viewModel.refreshUi()
+        }
+    }
+
+    private fun dispatchInner(command: EmailCommandTool.Command) {
         val state = viewModel.uiState.value
         val selected: Email? = state.selectedEmail
 
@@ -76,15 +91,80 @@ class VoiceCommandDispatcher(
             }
 
             EmailCommandTool.Command.ShowInbox -> {
-                viewModel.collapseToHud()
+                // Re-point: "show inbox" should land on TRIAGE (the actual list
+                // view), not collapse to the ambient banner. The banner is
+                // ambient/walk-mode, the inbox is the list of emails.
+                XrLog.tier(viewModel.uiState.value.tier.name, "TRIAGE", "voice.show_inbox")
+                viewModel.expandToTriage()
             }
 
             EmailCommandTool.Command.GoBack -> {
-                viewModel.collapseToHud()
+                handleCollapseOneTier()
+            }
+
+            EmailCommandTool.Command.Refresh -> {
+                viewModel.refreshUi()
+                tts.speak("Refreshed.")
             }
 
             is EmailCommandTool.Command.Speak -> {
                 tts.speak(command.text)
+            }
+
+            is EmailCommandTool.Command.ExpandTier -> {
+                handleExpandTier(command.target)
+            }
+
+            EmailCommandTool.Command.CollapseOneTier -> {
+                handleCollapseOneTier()
+            }
+
+            EmailCommandTool.Command.NextUnread -> {
+                XrLog.v(TAG, "navigateNextUnread() (voice 'next')")
+                viewModel.navigateNextUnread()
+            }
+        }
+    }
+
+    private fun handleExpandTier(rawTarget: String) {
+        val current = viewModel.uiState.value.tier.name
+        when (rawTarget.trim().lowercase()) {
+            "notifications", "notification", "notification_cards", "cards" -> {
+                XrLog.tier(current, "NOTIFICATION_CARDS", "voice.expand_tier($rawTarget)")
+                viewModel.expandToNotificationCards()
+            }
+            "triage", "inbox", "list" -> {
+                XrLog.tier(current, "TRIAGE", "voice.expand_tier($rawTarget)")
+                viewModel.expandToTriage()
+            }
+            "focus", "reader", "read", "open" -> {
+                XrLog.tier(current, "FOCUS", "voice.expand_tier($rawTarget)")
+                viewModel.expandToFocus()
+            }
+            else -> {
+                Log.w(TAG, "expand_tier got unknown target='$rawTarget' — defaulting to TRIAGE")
+                viewModel.expandToTriage()
+            }
+        }
+    }
+
+    private fun handleCollapseOneTier() {
+        val current = viewModel.uiState.value.tier
+        when (current) {
+            InteractionTier.FOCUS -> {
+                XrLog.tier("FOCUS", "TRIAGE", "voice.collapse_one_tier")
+                viewModel.collapseToTriage()
+            }
+            InteractionTier.TRIAGE -> {
+                XrLog.tier("TRIAGE", "NOTIFICATION_CARDS", "voice.collapse_one_tier")
+                viewModel.collapseToNotificationCards()
+            }
+            InteractionTier.NOTIFICATION_CARDS -> {
+                XrLog.tier("NOTIFICATION_CARDS", "AMBIENT_HUD", "voice.collapse_one_tier")
+                viewModel.collapseFromNotificationCards()
+            }
+            InteractionTier.AMBIENT_HUD -> {
+                XrLog.v(TAG, "collapse_one_tier from AMBIENT_HUD: nothing to collapse")
             }
         }
     }
