@@ -123,20 +123,21 @@ fun SpatialEmailLayout(
                     ) {
                         onGestureOverlay()
                     }
-                }
-            }
 
-            Orbiter(
-                position = ContentEdge.Bottom,
-                offset = 96.dp,
-                alignment = Alignment.CenterHorizontally,
-            ) {
-                QuickActionBar(
-                    onReply = onReply,
-                    onArchive = onArchive,
-                    onSnooze = onSnooze,
-                    onForward = onForward,
-                )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(bottom = 24.dp),
+                        contentAlignment = Alignment.BottomCenter,
+                    ) {
+                        QuickActionBar(
+                            onReply = onReply,
+                            onArchive = onArchive,
+                            onSnooze = onSnooze,
+                            onForward = onForward,
+                        )
+                    }
+                }
             }
 
             if (onCollapse != null) {

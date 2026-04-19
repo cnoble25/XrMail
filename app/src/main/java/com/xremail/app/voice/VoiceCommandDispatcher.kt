@@ -86,6 +86,26 @@ class VoiceCommandDispatcher(
             is EmailCommandTool.Command.Speak -> {
                 tts.speak(command.text)
             }
+
+            is EmailCommandTool.Command.ExpandTier -> {
+                when (command.target.lowercase().trim()) {
+                    "notifications" -> viewModel.expandToNotificationCards()
+                    "triage" -> viewModel.expandToTriage()
+                    "focus" -> viewModel.expandToFocus()
+                }
+            }
+
+            EmailCommandTool.Command.CollapseOneTier -> {
+                viewModel.collapseOneTier()
+            }
+
+            EmailCommandTool.Command.Refresh -> {
+                viewModel.refreshUi()
+            }
+
+            EmailCommandTool.Command.NextUnread -> {
+                viewModel.navigateNextUnread()
+            }
         }
     }
 

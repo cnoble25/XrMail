@@ -1,6 +1,7 @@
 package com.xremail.app.ui.spatial
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,6 +30,8 @@ import com.xremail.app.data.Priority
 import com.xremail.app.ui.notifications.NotificationBanner
 import com.xremail.app.ui.notifications.NotificationCardStack
 import com.xremail.app.ui.peripheral.AmbientHud
+import com.xremail.app.ui.peripheral.FingerActionMenu
+import com.xremail.app.ui.peripheral.ToastOverlay
 import com.xremail.app.ui.peripheral.TtsProgressBar
 import com.xremail.app.ui.peripheral.TriagePanel
 import com.xremail.app.ui.peripheral.VoiceComposeOverlay
@@ -133,6 +136,33 @@ fun InteractionTierRouter(
                             draft = voiceDraft ?: uiState.voiceDraft,
                             composeState = voiceComposeState,
                         )
+                    }
+                }
+
+                if (uiState.toastMessage != null) {
+                    SpatialPanel(
+                        modifier = SubspaceModifier
+                            .width(280.dp)
+                            .height(60.dp)
+                            .offset(
+                                x = lazyOffset.x,
+                                y = 220.dp + lazyOffset.y,
+                                z = 40.dp,
+                            ),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(XREmailColors.surface.copy(alpha = 0.9f))
+                                .padding(12.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            ToastOverlay(
+                                message = uiState.toastMessage,
+                                onDismiss = onDismissToast,
+                            )
+                        }
                     }
                 }
             }
@@ -256,6 +286,47 @@ fun InteractionTierRouter(
                     onSend = onSend,
                     onCancelCompose = onCancelCompose,
                     onCollapse = onCollapseToTriage,
+                )
+
+                if (uiState.toastMessage != null) {
+                    SpatialPanel(
+                        modifier = SubspaceModifier
+                            .width(320.dp)
+                            .height(64.dp)
+                            .offset(y = 380.dp, z = 20.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(XREmailColors.surfaceElevated.copy(alpha = 0.95f))
+                                .padding(16.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            ToastOverlay(
+                                message = uiState.toastMessage,
+                                onDismiss = onDismissToast,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        if (uiState.isFingerMenuVisible) {
+            SpatialPanel(
+                modifier = SubspaceModifier
+                    .width(320.dp)
+                    .height(240.dp)
+                    .offset(
+                        x = lazyOffset.x,
+                        y = (-180).dp + lazyOffset.y,
+                        z = 35.dp,
+                    ),
+            ) {
+                FingerActionMenu(
+                    activeHand = uiState.activeMenuHand,
+                    assignments = uiState.fingerMenuAssignments,
                 )
             }
         }

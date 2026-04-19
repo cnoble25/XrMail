@@ -33,6 +33,10 @@ object EmailCommandTool {
         data object ShowInbox : Command()
         data object GoBack : Command()
         data class Speak(val text: String) : Command()
+        data class ExpandTier(val target: String) : Command()
+        data object CollapseOneTier : Command()
+        data object Refresh : Command()
+        data object NextUnread : Command()
     }
 
     // ---------------------------------------------------------------------------
@@ -143,11 +147,35 @@ object EmailCommandTool {
         mapOf("text" to Schema.string("The phrase to speak.")),
     )
 
+    private val expandTier = FunctionDeclaration(
+        "expand_tier",
+        "Escalate UI tier: target is one of: notifications, triage, focus.",
+        mapOf("target" to Schema.string("One of 'notifications', 'triage', or 'focus'.")),
+    )
+
+    private val collapseOneTier = FunctionDeclaration(
+        "collapse_one_tier",
+        "Step back one tier toward the ambient HUD.",
+        emptyMap(),
+    )
+
+    private val refresh = FunctionDeclaration(
+        "refresh",
+        "Reset UI to ambient HUD and reload the inbox.",
+        emptyMap(),
+    )
+
+    private val nextUnread = FunctionDeclaration(
+        "next_unread",
+        "Select the next unread email in the list.",
+        emptyMap(),
+    )
+
     val tool: Tool = Tool.functionDeclarations(
         listOf(
             selectEmail, archiveEmail, snoozeEmail, forwardEmail, reply, search,
             readAloud, summarize, draftReply, sendDraft, filterCategory,
-            showInbox, goBack, speak,
+            showInbox, goBack, speak, expandTier, collapseOneTier, refresh, nextUnread,
         ),
     )
 
@@ -170,6 +198,10 @@ object EmailCommandTool {
         "show_inbox" -> Command.ShowInbox
         "go_back" -> Command.GoBack
         "speak" -> args["text"]?.let { Command.Speak(it) }
+        "expand_tier" -> args["target"]?.let { Command.ExpandTier(it) }
+        "collapse_one_tier" -> Command.CollapseOneTier
+        "refresh" -> Command.Refresh
+        "next_unread" -> Command.NextUnread
         else -> null
     }
 }

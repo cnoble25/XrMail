@@ -2,7 +2,10 @@ package com.xremail.app.tracking
 
 import android.content.ContentResolver
 import android.util.Log
+import androidx.xr.runtime.FaceTrackingMode
+import androidx.xr.runtime.HandTrackingMode
 import androidx.xr.runtime.Session
+import androidx.xr.runtime.SessionConfigureSuccess
 import kotlinx.coroutines.CoroutineScope
 
 private const val TAG = "XrSessionManager"
@@ -12,6 +15,11 @@ private const val TAG = "XrSessionManager"
  * Call [startAll] once you have a valid XR Session (from LocalSession.current
  * or Session.create()). On emulator or non-XR devices where Session is null,
  * all trackers remain in their default/simulated state.
+ *
+ * **Important:** [Session.configure] must be called once with every mode the
+ * app needs. [SecondaryHandGestures] and [FaceAttentionTracker] used to each
+ * call `configure` separately; the second call overwrote the first and disabled
+ * hand tracking on device.
  */
 class XrSessionManager(
     val faceTracker: FaceAttentionTracker,
@@ -34,6 +42,17 @@ class XrSessionManager(
         started = true
 
         Log.i(TAG, "Starting XR tracking subsystems")
+
+        val merged = session.config.copy(
+            handTracking = HandTrackingMode.BOTH,
+            faceTracking = FaceTrackingMode.BLEND_SHAPES,
+        )
+        val configResult = session.configure(merged)
+        if (configResult is SessionConfigureSuccess) {
+            Log.i(TAG, "Session configured: hand + face tracking enabled together")
+        } else {
+            Log.w(TAG, "Session configure result: $configResult")
+        }
 
         handGestures.startTracking(session, contentResolver, scope)
         faceTracker.startTracking(session, scope)

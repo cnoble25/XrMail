@@ -1,17 +1,26 @@
 package com.xremail.app
 
+import android.annotation.SuppressLint
 import android.Manifest
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
+import android.view.KeyEvent
+import android.view.View
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.focusable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -20,8 +29,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -35,12 +50,16 @@ import com.xremail.app.backend.service.GmailRepository
 import com.xremail.app.backend.mock.MockEmailRepository
 import com.xremail.app.tracking.FaceAttentionTracker
 import com.xremail.app.tracking.GestureToActionMapper
+import com.xremail.app.tracking.KeyboardGestureDispatcher
 import com.xremail.app.tracking.SecondaryHandGestures
 import com.xremail.app.tracking.TiltScrollController
 import com.xremail.app.tracking.XrSessionManager
 import com.xremail.app.ui.spatial.DisplayMode
 import com.xremail.app.ui.spatial.DisplayModeRouter
 import com.xremail.app.ui.feedback.GestureFeedbackOverlay
+import com.xremail.app.ui.peripheral.EmulatorHelpHint
+import com.xremail.app.ui.peripheral.EmulatorHelpOverlay
+import com.xremail.app.ui.peripheral.GestureDebugBar
 import com.xremail.app.ui.spatial.GlimmerEmailApp
 import com.xremail.app.ui.spatial.InteractionTierRouter
 import com.xremail.app.ui.theme.XREmailTheme
@@ -62,6 +81,50 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var tokenManager: TokenManager
     private lateinit var authRepository: AuthRepository
+
+    /** Set from [HeadsetEmailApp] so hardware keys reach [KeyboardGestureDispatcher]. */
+    var keyboardDispatcher: KeyboardGestureDispatcher? = null
+
+    @SuppressLint("RestrictedApi")
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Run emulator / keyboard shortcuts BEFORE super. Otherwise Compose or the
+        // system may consume keys (e.g. H) and [KeyboardGestureDispatcher] never runs.
+        if (keyboardDispatcher?.onKeyEvent(event) == true) {
+            return true
+        }
+
+        if (event.action == KeyEvent.ACTION_DOWN || event.action == KeyEvent.ACTION_MULTIPLE) {
+            Log.w(
+                "XrMailKeys",
+                "Activity received action=${event.action} keyCode=${event.keyCode} unicode=${event.unicodeChar} chars='${event.characters}' scan=${event.scanCode}"
+            )
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyboardDispatcher?.onKeyEvent(event) == true) {
+            Log.w("XrMailKeys", "onKeyDown consumed keyCode=$keyCode")
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyboardDispatcher?.onKeyEvent(event) == true) {
+            Log.w("XrMailKeys", "onKeyUp consumed keyCode=$keyCode")
+            return true
+        }
+        return super.onKeyUp(keyCode, event)
+    }
+
+    override fun dispatchKeyShortcutEvent(event: KeyEvent): Boolean {
+        if (keyboardDispatcher?.onKeyEvent(event) == true) {
+            Log.w("XrMailKeys", "dispatchKeyShortcutEvent consumed keyCode=${event.keyCode}")
+            return true
+        }
+        return super.dispatchKeyShortcutEvent(event)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -155,8 +218,16 @@ private fun HeadsetEmailApp(factory: EmailViewModel.Factory) {
         VoiceCommandDispatcher(viewModel, ttsManager)
     }
 
-    // Runtime permissions — mic for Gemini Live, XR sensors for session.configure.
-    // Missing XR perms crash OpenXrManager.configure with SecurityException.
+    // Runtime permissions — mic for Gemini Live; XR tracking perms for hands/face.
+    // SCENE_UNDERSTANDING is requested but does NOT gate hand tracking — denying it
+    // no longer blocks [XrSessionManager.startAll] (previously broke all gestures).
+    val xrTrackingPerms = remember {
+        arrayOf(
+            "android.permission.HAND_TRACKING",
+            "android.permission.FACE_TRACKING",
+            "android.permission.EYE_TRACKING_COARSE",
+        )
+    }
     val requiredPerms = remember {
         arrayOf(
             Manifest.permission.RECORD_AUDIO,
@@ -166,7 +237,10 @@ private fun HeadsetEmailApp(factory: EmailViewModel.Factory) {
             "android.permission.SCENE_UNDERSTANDING",
         )
     }
-    fun allGranted(): Boolean = requiredPerms.all {
+    fun xrTrackingGranted(): Boolean = xrTrackingPerms.all {
+        ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+    }
+    fun allRequestedPermsGranted(): Boolean = requiredPerms.all {
         ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
     }
     var micGranted by remember {
@@ -176,7 +250,7 @@ private fun HeadsetEmailApp(factory: EmailViewModel.Factory) {
             ) == PackageManager.PERMISSION_GRANTED
         )
     }
-    var xrGranted by remember { mutableStateOf(allGranted()) }
+    var xrInputReady by remember { mutableStateOf(xrTrackingGranted()) }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { results ->
@@ -184,10 +258,10 @@ private fun HeadsetEmailApp(factory: EmailViewModel.Factory) {
             ContextCompat.checkSelfPermission(
                 context, Manifest.permission.RECORD_AUDIO,
             ) == PackageManager.PERMISSION_GRANTED
-        xrGranted = allGranted()
+        xrInputReady = xrTrackingGranted()
     }
     LaunchedEffect(Unit) {
-        if (!allGranted()) permissionLauncher.launch(requiredPerms)
+        if (!allRequestedPermsGranted()) permissionLauncher.launch(requiredPerms)
     }
 
     // Connect / disconnect Gemini Live once the mic permission is settled.
@@ -234,9 +308,44 @@ private fun HeadsetEmailApp(factory: EmailViewModel.Factory) {
 
     val faceTracker = remember { FaceAttentionTracker() }
     val handGestures = remember { SecondaryHandGestures() }
+    val keyboardDispatcher = remember(viewModel, handGestures) {
+        KeyboardGestureDispatcher(viewModel, handGestures)
+    }
     val tiltScroll = remember { TiltScrollController() }
     val gestureMapper = remember(viewModel) { GestureToActionMapper(viewModel) }
     val xrSessionManager = remember { XrSessionManager(faceTracker, handGestures, tiltScroll) }
+
+    val activity = context.findMainActivity()
+    val focusRequester = remember { FocusRequester() }
+    DisposableEffect(activity, keyboardDispatcher) {
+        activity?.keyboardDispatcher = keyboardDispatcher
+        onDispose { activity?.keyboardDispatcher = null }
+    }
+    val composeView = LocalView.current
+    DisposableEffect(composeView, keyboardDispatcher) {
+        val listener = View.OnKeyListener { _, keyCode, event ->
+            if (event.action == KeyEvent.ACTION_DOWN || 
+                event.action == KeyEvent.ACTION_UP || 
+                event.action == KeyEvent.ACTION_MULTIPLE
+            ) {
+                if (event.action != KeyEvent.ACTION_UP) {
+                    Log.w(
+                        "XrMailKeys",
+                        "Compose view received action=${event.action} keyCode=$keyCode unicode=${event.unicodeChar} chars='${event.characters}' scan=${event.scanCode}"
+                    )
+                }
+                return@OnKeyListener keyboardDispatcher.onKeyEvent(event)
+            }
+            false
+        }
+        composeView.isFocusableInTouchMode = true
+        composeView.requestFocus()
+        composeView.setOnKeyListener(listener)
+        onDispose { composeView.setOnKeyListener(null) }
+    }
+    LaunchedEffect(focusRequester) {
+        focusRequester.requestFocus()
+    }
 
     val ttsState by ttsManager.playbackState.collectAsStateWithLifecycle()
     val ttsProgress by ttsManager.progress.collectAsStateWithLifecycle()
@@ -247,8 +356,8 @@ private fun HeadsetEmailApp(factory: EmailViewModel.Factory) {
 
     val xrSession = LocalSession.current
 
-    LaunchedEffect(xrSession, xrGranted) {
-        if (xrGranted) {
+    LaunchedEffect(xrSession, xrInputReady) {
+        if (xrInputReady) {
             try {
                 xrSessionManager.startAll(
                     session = xrSession,
@@ -273,24 +382,50 @@ private fun HeadsetEmailApp(factory: EmailViewModel.Factory) {
         }
     }
 
+    LaunchedEffect(uiState.dominantHand) {
+        handGestures.setDominantHand(uiState.dominantHand)
+    }
+
     LaunchedEffect(faceTracker, ttsManager) {
         faceTracker.isAttentive.collect { attentive ->
             ttsManager.onAttentionChanged(attentive)
         }
     }
 
+    // Optional: expand notifications when gazing from HUD. Do not auto-collapse when
+    // look-away — that fights keyboard / on-screen controls when hand tracking is off.
     LaunchedEffect(faceTracker) {
         faceTracker.isGazingAtNotificationZone.collect { gazing ->
             val currentTier = viewModel.uiState.value.tier
             if (gazing && currentTier == InteractionTier.AMBIENT_HUD) {
                 viewModel.expandToNotificationCards()
-            } else if (!gazing && currentTier == InteractionTier.NOTIFICATION_CARDS) {
-                viewModel.collapseFromNotificationCards()
             }
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .focusRequester(focusRequester)
+            .focusable()
+            .onPreviewKeyEvent { composeKeyEvent ->
+                val native = composeKeyEvent.nativeKeyEvent
+                if (native.action == KeyEvent.ACTION_DOWN || 
+                    native.action == KeyEvent.ACTION_UP || 
+                    native.action == KeyEvent.ACTION_MULTIPLE
+                ) {
+                    if (native.action != KeyEvent.ACTION_UP) {
+                        Log.w(
+                            "XrMailKeys",
+                            "Compose preview received action=${native.action} keyCode=${native.keyCode} unicode=${native.unicodeChar} chars='${native.characters}' scan=${native.scanCode}"
+                        )
+                    }
+                    keyboardDispatcher.onKeyEvent(native)
+                } else {
+                    false
+                }
+            }
+    ) {
         InteractionTierRouter(
             uiState = uiState,
             prioritySortedEmails = viewModel.prioritySortedEmails(),
@@ -321,6 +456,38 @@ private fun HeadsetEmailApp(factory: EmailViewModel.Factory) {
             onDismissToast = viewModel::dismissToast,
         )
 
+        if (uiState.showEmulatorHelp) {
+            EmulatorHelpOverlay(
+                currentTier = uiState.tier,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(16.dp),
+            )
+        }
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth(),
+        ) {
+            GestureDebugBar(
+                currentTier = uiState.tier,
+                viewModel = viewModel,
+                handGestures = handGestures,
+            )
+            if (!uiState.showEmulatorHelp) {
+                EmulatorHelpHint(
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+                )
+            }
+        }
+
         GestureFeedbackOverlay(gestures = handGestures.gestures)
     }
+}
+
+private tailrec fun Context.findMainActivity(): MainActivity? = when (this) {
+    is MainActivity -> this
+    is ContextWrapper -> baseContext.findMainActivity()
+    else -> null
 }

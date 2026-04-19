@@ -2,6 +2,7 @@ package com.xremail.app.tracking
 
 import android.util.Log
 import com.xremail.app.viewmodel.EmailViewModel
+import com.xremail.app.viewmodel.HandSide
 import com.xremail.app.viewmodel.InteractionTier
 
 private const val TAG = "GestureMapper"
@@ -25,6 +26,7 @@ class GestureToActionMapper(
 
     fun onGesture(gesture: SecondaryHandGestures.Gesture, tier: InteractionTier) {
         Log.d(TAG, "gesture=$gesture tier=$tier")
+        if (handleFingerMenuGesture(gesture)) return
         when (tier) {
             InteractionTier.AMBIENT_HUD -> handleAmbientGesture(gesture)
             InteractionTier.NOTIFICATION_CARDS -> handleNotificationCardsGesture(gesture)
@@ -33,11 +35,53 @@ class GestureToActionMapper(
         }
     }
 
+    private fun handleFingerMenuGesture(gesture: SecondaryHandGestures.Gesture): Boolean {
+        when (gesture) {
+            SecondaryHandGestures.Gesture.MENU_SHOW -> {
+                val hand = viewModel.uiState.value.dominantHand.opposite()
+                Log.d(TAG, "  -> showFingerMenu($hand)")
+                viewModel.showFingerMenu(hand)
+                return true
+            }
+            SecondaryHandGestures.Gesture.MENU_HIDE -> {
+                Log.d(TAG, "  -> hideFingerMenu()")
+                viewModel.hideFingerMenu()
+                return true
+            }
+            else -> {}
+        }
+
+        when (gesture) {
+            SecondaryHandGestures.Gesture.PINCH_INDEX -> {
+                Log.i(TAG, "PINCH_INDEX received -> archiveSelected()")
+                viewModel.archiveSelected()
+            }
+            SecondaryHandGestures.Gesture.PINCH_MIDDLE -> {
+                Log.i(TAG, "PINCH_MIDDLE received -> snoozeSelected()")
+                viewModel.snoozeSelected()
+            }
+            SecondaryHandGestures.Gesture.PINCH_RING -> {
+                Log.i(TAG, "PINCH_RING received -> toggleStarSelected()")
+                viewModel.uiState.value.selectedEmail?.let(viewModel::toggleStar)
+            }
+            SecondaryHandGestures.Gesture.PINCH_PINKY -> {
+                Log.i(TAG, "PINCH_PINKY received -> startCompose()")
+                viewModel.startCompose()
+            }
+            else -> return false
+        }
+        return true
+    }
+
     private fun handleAmbientGesture(gesture: SecondaryHandGestures.Gesture) {
         when (gesture) {
             SecondaryHandGestures.Gesture.PINCH_SELECT -> {
                 Log.d(TAG, "  -> expandToNotificationCards()")
                 viewModel.expandToNotificationCards()
+            }
+            SecondaryHandGestures.Gesture.OPEN_PALM_HOLD_COLLAPSE -> {
+                Log.d(TAG, "  -> collapseOneTier()")
+                viewModel.collapseOneTier()
             }
             else -> { /* no-op in ambient — gaze handles expansion */ }
         }
@@ -88,6 +132,11 @@ class GestureToActionMapper(
                     viewModel.toggleStar(email)
                 }
             }
+            SecondaryHandGestures.Gesture.OPEN_PALM_HOLD_COLLAPSE -> {
+                Log.d(TAG, "  -> collapseOneTier()")
+                viewModel.collapseOneTier()
+            }
+            else -> { }
         }
     }
 
@@ -121,6 +170,11 @@ class GestureToActionMapper(
                     viewModel.toggleStar(it)
                 }
             }
+            SecondaryHandGestures.Gesture.OPEN_PALM_HOLD_COLLAPSE -> {
+                Log.d(TAG, "  -> collapseOneTier()")
+                viewModel.collapseOneTier()
+            }
+            else -> { }
         }
     }
 
@@ -135,9 +189,22 @@ class GestureToActionMapper(
                 viewModel.collapseToTriage()
             }
             SecondaryHandGestures.Gesture.PINCH_SELECT -> {
-                /* standard select — handled by existing panel tap */
+                Log.d(TAG, "  -> collapseToTriage() (pinch back from full layout)")
+                viewModel.collapseToTriage()
+            }
+            SecondaryHandGestures.Gesture.OPEN_PALM_HOLD_COLLAPSE -> {
+                Log.d(TAG, "  -> collapseOneTier()")
+                viewModel.collapseOneTier()
             }
             else -> { /* no-op in focus */ }
         }
     }
+
+    private fun selectedOrFirstEmail() =
+        viewModel.uiState.value.selectedEmail ?: viewModel.uiState.value.emails.firstOrNull()
+}
+
+private fun HandSide.opposite(): HandSide = when (this) {
+    HandSide.LEFT -> HandSide.RIGHT
+    HandSide.RIGHT -> HandSide.LEFT
 }

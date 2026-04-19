@@ -15,6 +15,9 @@ import kotlinx.coroutines.launch
 enum class AppMode { READING, COMPOSING }
 
 enum class InteractionTier { AMBIENT_HUD, NOTIFICATION_CARDS, TRIAGE, FOCUS }
+enum class HandSide { LEFT, RIGHT }
+enum class FingerSlot { INDEX, MIDDLE, RING, PINKY }
+enum class QuickActionId { ARCHIVE_SELECTED, SNOOZE_SELECTED, TOGGLE_STAR_SELECTED, REPLY_SELECTED }
 
 data class VoiceDraft(
     val recipientName: String = "",
@@ -41,19 +44,35 @@ data class EmailUiState(
     val errorMessage: String? = null,
     val replySuggestions: List<String> = emptyList(),
     val isLoadingSuggestions: Boolean = false,
-    val tier: InteractionTier = InteractionTier.AMBIENT_HUD,
+    val tier: InteractionTier = InteractionTier.FOCUS,
     val voiceDraft: VoiceDraft? = null,
     val toastMessage: ToastMessage? = null,
     val isVoiceComposing: Boolean = false,
     val highlightedNotificationId: String? = null,
     val isGazingAtNotifications: Boolean = false,
+    val showEmulatorHelp: Boolean = false,
+    val dominantHand: HandSide = HandSide.RIGHT,
+    val isFingerMenuVisible: Boolean = false,
+    val activeMenuHand: HandSide? = null,
+    val fingerMenuAssignments: Map<FingerSlot, QuickActionId> = mapOf(
+        FingerSlot.INDEX to QuickActionId.ARCHIVE_SELECTED,
+        FingerSlot.MIDDLE to QuickActionId.SNOOZE_SELECTED,
+        FingerSlot.RING to QuickActionId.TOGGLE_STAR_SELECTED,
+        FingerSlot.PINKY to QuickActionId.REPLY_SELECTED,
+    ),
 )
 
 class EmailViewModel(
     private val repository: EmailRepository = MockEmailRepository(),
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(EmailUiState(isLoading = true))
+    private val _uiState = MutableStateFlow(
+        EmailUiState(
+            isLoading = true,
+            tier = InteractionTier.FOCUS,
+            showEmulatorHelp = false,
+        ),
+    )
     val uiState: StateFlow<EmailUiState> = _uiState.asStateFlow()
 
     init {
@@ -84,6 +103,7 @@ class EmailViewModel(
                             activeCategory = category,
                             unreadCount = filtered.count { !it.isRead },
                             isLoading = false,
+                            tier = InteractionTier.FOCUS,
                         )
                     }
                 },
@@ -171,9 +191,96 @@ class EmailViewModel(
         _uiState.update { it.copy(isGazingAtNotifications = gazing) }
     }
 
+    fun toggleEmulatorHelp() {
+        _uiState.update { it.copy(showEmulatorHelp = !it.showEmulatorHelp) }
+    }
+
+    fun setDominantHand(hand: HandSide) {
+        _uiState.update {
+            val nonDominant = hand.opposite()
+            val keepActive = if (it.activeMenuHand == nonDominant) it.activeMenuHand else null
+            it.copy(
+                dominantHand = hand,
+                activeMenuHand = keepActive,
+                isFingerMenuVisible = it.isFingerMenuVisible && keepActive != null,
+            )
+        }
+    }
+
+    fun showFingerMenu(hand: HandSide) {
+        _uiState.update { state ->
+            val nonDominant = state.dominantHand.opposite()
+            if (hand != nonDominant) return@update state
+            state.copy(
+                isFingerMenuVisible = true,
+                activeMenuHand = hand,
+            )
+        }
+    }
+
+    fun hideFingerMenu() {
+        _uiState.update {
+            it.copy(
+                isFingerMenuVisible = false,
+                activeMenuHand = null,
+            )
+        }
+    }
+
+    fun executeFingerMenuAction(slot: FingerSlot) {
+        val action = _uiState.value.fingerMenuAssignments[slot] ?: return
+        when (action) {
+            QuickActionId.ARCHIVE_SELECTED -> archiveSelected()
+            QuickActionId.SNOOZE_SELECTED -> snoozeSelected()
+            QuickActionId.TOGGLE_STAR_SELECTED -> _uiState.value.selectedEmail?.let(::toggleStar)
+            QuickActionId.REPLY_SELECTED -> startCompose()
+        }
+    }
+
+    /**
+     * Step back one tier toward the ambient HUD (same model as keyboard Backspace).
+     */
+    fun collapseOneTier() {
+        when (_uiState.value.tier) {
+            InteractionTier.FOCUS -> collapseToTriage()
+            InteractionTier.TRIAGE -> expandToNotificationCards()
+            InteractionTier.NOTIFICATION_CARDS -> collapseFromNotificationCards()
+            InteractionTier.AMBIENT_HUD -> { }
+        }
+    }
+
+    /**
+     * Emergency reset: ambient HUD, clear overlays, reload inbox.
+     */
+    fun refreshUi() {
+        _uiState.update {
+            it.copy(
+                tier = InteractionTier.AMBIENT_HUD,
+                mode = AppMode.READING,
+                isVoiceComposing = false,
+                voiceDraft = null,
+                highlightedNotificationId = null,
+                isGazingAtNotifications = false,
+                errorMessage = null,
+                toastMessage = ToastMessage("Refreshed"),
+            )
+        }
+        loadEmails()
+    }
+
     // ---------------------------------------------------------------------------
     // Email selection
     // ---------------------------------------------------------------------------
+
+    /** Next inbox item (same as keyboard N); wraps at end of list. */
+    fun selectNextEmail() {
+        val state = _uiState.value
+        val emails = state.emails
+        if (emails.isEmpty()) return
+        val currentIdx = emails.indexOfFirst { it.id == state.selectedEmail?.id }
+        val next = emails.getOrNull(currentIdx + 1) ?: emails.first()
+        selectEmail(next)
+    }
 
     fun selectEmail(email: Email) {
         viewModelScope.launch {
@@ -220,17 +327,7 @@ class EmailViewModel(
     }
 
     fun toggleStar(email: Email) {
-        _uiState.update { state ->
-            val updated = state.emails.map {
-                if (it.id == email.id) it.copy(isStarred = !it.isStarred) else it
-            }
-            val updatedSelected = if (state.selectedEmail?.id == email.id) {
-                state.selectedEmail.copy(isStarred = !state.selectedEmail.isStarred)
-            } else {
-                state.selectedEmail
-            }
-            state.copy(emails = updated, selectedEmail = updatedSelected)
-        }
+        setStarred(email.id, !email.isStarred)
     }
 
     // ---------------------------------------------------------------------------
@@ -344,6 +441,9 @@ class EmailViewModel(
                 toastMessage = ToastMessage("Archived: ${email.sender}"),
             )
         }
+        viewModelScope.launch {
+            repository.archive(email.id)
+        }
     }
 
     fun snoozeEmail(email: Email) {
@@ -362,14 +462,14 @@ class EmailViewModel(
                 toastMessage = ToastMessage("Snoozed: ${email.sender}"),
             )
         }
+        viewModelScope.launch {
+            repository.snooze(email.id)
+        }
     }
 
     fun archiveSelected() {
         val selected = _uiState.value.selectedEmail ?: return
         archiveEmail(selected)
-        viewModelScope.launch {
-            repository.archive(selected.id)
-        }
     }
 
     fun snoozeSelected() {
@@ -477,4 +577,9 @@ class EmailViewModel(
             return EmailViewModel(repository) as T
         }
     }
+}
+
+private fun HandSide.opposite(): HandSide = when (this) {
+    HandSide.LEFT -> HandSide.RIGHT
+    HandSide.RIGHT -> HandSide.LEFT
 }

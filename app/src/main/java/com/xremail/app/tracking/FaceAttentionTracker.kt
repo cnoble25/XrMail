@@ -3,9 +3,7 @@ package com.xremail.app.tracking
 import android.util.Log
 import androidx.xr.arcore.Face
 import androidx.xr.arcore.FaceBlendShapeType
-import androidx.xr.runtime.FaceTrackingMode
 import androidx.xr.runtime.Session
-import androidx.xr.runtime.SessionConfigureSuccess
 import androidx.xr.runtime.TrackingState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -62,15 +60,6 @@ class FaceAttentionTracker {
 
     fun startTracking(session: Session, scope: CoroutineScope) {
         trackingJob?.cancel()
-
-        val configResult = session.configure(
-            session.config.copy(faceTracking = FaceTrackingMode.BLEND_SHAPES)
-        )
-        if (configResult is SessionConfigureSuccess) {
-            Log.d(TAG, "Face tracking configured with gaze zone detection")
-        } else {
-            Log.w(TAG, "Face tracking config result: $configResult")
-        }
 
         val face = Face.getUserFace(session)
         if (face == null) {

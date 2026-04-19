@@ -62,6 +62,11 @@ interface EmailRepository {
     suspend fun trash(messageId: String): Result<Unit>
 
     /**
+     * Snoozes an email (moves it out of the inbox until a future time).
+     */
+    suspend fun snooze(messageId: String): Result<Unit>
+
+    /**
      * Returns the contact card for an email's sender, if available.
      */
     suspend fun getContact(email: String): Contact?

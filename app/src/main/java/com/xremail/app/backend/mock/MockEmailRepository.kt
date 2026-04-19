@@ -70,6 +70,11 @@ class MockEmailRepository : EmailRepository {
         return Result.success(Unit)
     }
 
+    override suspend fun snooze(messageId: String): Result<Unit> {
+        emails.removeIf { it.id == messageId }
+        return Result.success(Unit)
+    }
+
     override suspend fun setStarred(messageId: String, starred: Boolean): Result<Unit> {
         mutate(messageId) { it.copy(isStarred = starred) }
         return Result.success(Unit)

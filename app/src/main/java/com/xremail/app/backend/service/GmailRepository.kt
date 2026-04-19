@@ -77,6 +77,19 @@ class GmailRepository(
         Unit
     }
 
+    override suspend fun snooze(messageId: String): Result<Unit> = safeCall {
+        // Phase 2: snooze moves out of inbox into a custom 'SNOOZED' label
+        // or uses the native Gmail snooze API if available in the Ktor backend.
+        api.modifyLabels(
+            messageId,
+            ModifyLabelsRequest(
+                addLabelIds = listOf("SNOOZED"),
+                removeLabelIds = listOf("INBOX")
+            )
+        ).unwrap()
+        Unit
+    }
+
     override suspend fun setStarred(messageId: String, starred: Boolean): Result<Unit> = safeCall {
         val request = if (starred) {
             ModifyLabelsRequest(addLabelIds = listOf("STARRED"))

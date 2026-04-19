@@ -17,12 +17,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuOpen
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.TouchApp
+import androidx.compose.material.icons.filled.UnfoldLess
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -49,8 +51,7 @@ import kotlinx.coroutines.flow.SharedFlow
  *
  * Solves the "frozen after expansion" UX issue: after any gesture is
  * interpreted the user sees a short visual + haptic confirmation so they
- * know the system registered their input, even when the action itself is a
- * no-op (e.g. pinch in FOCUS) or a tier-only transition.
+ * know the system registered their input, including tier transitions.
  */
 @Composable
 fun GestureFeedbackOverlay(
@@ -130,6 +131,13 @@ private fun iconFor(gesture: SecondaryHandGestures.Gesture): ImageVector = when 
     SecondaryHandGestures.Gesture.SWIPE_DOWN_DISMISS -> Icons.Default.KeyboardArrowDown
     SecondaryHandGestures.Gesture.PINCH_SELECT -> Icons.Default.TouchApp
     SecondaryHandGestures.Gesture.PINCH_HOLD_EXPAND -> Icons.Default.OpenInFull
+    SecondaryHandGestures.Gesture.OPEN_PALM_HOLD_COLLAPSE -> Icons.Default.UnfoldLess
+    SecondaryHandGestures.Gesture.MENU_SHOW -> Icons.AutoMirrored.Filled.MenuOpen
+    SecondaryHandGestures.Gesture.MENU_HIDE -> Icons.AutoMirrored.Filled.MenuOpen
+    SecondaryHandGestures.Gesture.PINCH_INDEX -> Icons.Default.TouchApp
+    SecondaryHandGestures.Gesture.PINCH_MIDDLE -> Icons.Default.TouchApp
+    SecondaryHandGestures.Gesture.PINCH_RING -> Icons.Default.TouchApp
+    SecondaryHandGestures.Gesture.PINCH_PINKY -> Icons.Default.TouchApp
 }
 
 private fun labelFor(gesture: SecondaryHandGestures.Gesture): String = when (gesture) {
@@ -139,4 +147,11 @@ private fun labelFor(gesture: SecondaryHandGestures.Gesture): String = when (ges
     SecondaryHandGestures.Gesture.SWIPE_DOWN_DISMISS -> "Dismissed"
     SecondaryHandGestures.Gesture.PINCH_SELECT -> "Select"
     SecondaryHandGestures.Gesture.PINCH_HOLD_EXPAND -> "Expand"
+    SecondaryHandGestures.Gesture.OPEN_PALM_HOLD_COLLAPSE -> "Back"
+    SecondaryHandGestures.Gesture.MENU_SHOW -> "Finger menu"
+    SecondaryHandGestures.Gesture.MENU_HIDE -> "Close menu"
+    SecondaryHandGestures.Gesture.PINCH_INDEX -> "Index action"
+    SecondaryHandGestures.Gesture.PINCH_MIDDLE -> "Middle action"
+    SecondaryHandGestures.Gesture.PINCH_RING -> "Ring action"
+    SecondaryHandGestures.Gesture.PINCH_PINKY -> "Pinky action"
 }
